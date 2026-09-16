@@ -4,7 +4,8 @@ const FEED_DESCRIPTION = "Feed personal de canciones para correr";
 const REPO_OWNER = "zokosting"; 
 const REPO_NAME = "rss";      
 const FILE_PATH = "feed.xml";     
-const BRANCH = "main";                     
+const BRANCH = "main";       
+const FEED_AUTHOR = "Cello";              
 
 // ===== GENERA EL XML DEL FEED =====
 function generarXMLFeed() {
@@ -16,9 +17,7 @@ function generarXMLFeed() {
     const file = files.next();
     const name = file.getName();
     
-    // Solo procesa archivos de audio
     if (!name.match(/\.(mp3|m4a|wav)$/i)) continue;
-    // Ignora el propio feed.xml si existiera
     if (name === "feed.xml") continue;
     
     const title = name.replace(/\.[^/.]+$/, "");
@@ -31,15 +30,21 @@ function generarXMLFeed() {
       <pubDate>${pubDate}</pubDate>
       <enclosure url="${downloadUrl}" length="0" type="audio/mpeg" />
       <guid>${file.getId()}</guid>
+      <itunes:author>${FEED_AUTHOR}</itunes:author>
     </item>`;
   }
   
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
   <channel>
     <title>${FEED_NAME}</title>
     <description>${FEED_DESCRIPTION}</description>
     <link>https://github.com/${REPO_OWNER}/${REPO_NAME}</link>
+    <language>es</language>
+    <itunes:author>${FEED_AUTHOR}</itunes:author>
+    <itunes:category text="Music"/>
+    <itunes:explicit>no</itunes:explicit>
     ${items}
   </channel>
 </rss>`;
