@@ -10,5 +10,12 @@
     <itunes:category text="Music"/>
     <itunes:explicit>no</itunes:explicit>
     
+    <item>
+      <title>Psicogu?as - C?mo Romper Los L?mites Mentales</title>
+      <pubDate>Thu, 30 Jul 2026 06:52:06 GMT</pubDate>
+      <enclosure url="https://zokosting.github.io/rss/Podcasts/Psicogu%C3%ADas%20-%20C%C3%B3mo%20Romper%20Los%20L%C3%ADmites%20Mentales.mp3" length="0" type="audio/mpeg" />
+      <guid>1mB3Pn2px55NkpeRu0xS82L1V1XqoOhAy</guid>
+      <itunes:author>EREBOR</itunes:author>
+    </item>
   </channel>
 </rss>
