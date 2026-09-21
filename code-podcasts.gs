@@ -16,7 +16,13 @@ const USE_GITHUB_PAGES = true;
 // Imagen del podcast (aparecerá en todos los episodios)
 const PODCAST_IMAGE_URL = "https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png";
 
-// ===== UTILIDADES DE URL =====
+// Límite de tamaño permitido por la API de GitHub (100 MB)
+const LIMITE_BYTES = 100 * 1024 * 1024;
+
+// Nº de archivos nuevos a procesar por ejecución (1 = seguro contra "Out of memory")
+const MAX_ARCHIVOS_POR_EJECUCION = 1;
+
+// ===== UTILIDADES =====
 function construirUrlPublica(pathRelativo) {
   if (USE_GITHUB_PAGES) {
     return `https://${REPO_OWNER}.github.io/${REPO_NAME}/${pathRelativo}`;
@@ -32,7 +38,17 @@ function getGithubToken() {
   return PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
 }
 
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 // ===== REGISTRO PERSISTENTE =====
+// Estructura: { fileId: { name, title, pubDate, modified, tooBig?, size? } }
 function cargarRegistro() {
   const raw = PropertiesService.getScriptProperties().getProperty('REGISTRO_AUDIOS');
   try {
@@ -62,16 +78,22 @@ function existeEnGitHub(pathRelativo) {
   return null;
 }
 
-// ===== SUBE UN ARCHIVO A GITHUB =====
+// ===== SUBE UN ARCHIVO A GITHUB (con liberación de memoria) =====
 function subirArchivoAGitHub(file, shaExistente) {
   const token = getGithubToken();
   const fileName = file.getName();
   const pathRelativo = `${AUDIO_FOLDER_PATH}/${fileName}`;
 
-  // getBytes() ya devuelve los bytes crudos del archivo (audio), no hay problema de encoding aquí
-  const bytes = file.getBlob().getBytes();
-  const contentBase64 = Utilities.base64Encode(bytes);
+  // 1) Bytes originales
+  let bytes = file.getBlob().getBytes();
 
+  // 2) Codificación Base64
+  let contentBase64 = Utilities.base64Encode(bytes);
+
+  // 3) Liberamos bytes: ya no los necesitamos
+  bytes = null;
+
+  // 4) Payload y su serialización
   const payload = {
     message: `Audio: ${fileName}`,
     content: contentBase64,
@@ -79,13 +101,18 @@ function subirArchivoAGitHub(file, shaExistente) {
   };
   if (shaExistente) payload.sha = shaExistente;
 
+  const payloadStr = JSON.stringify(payload);
+
+  // 5) Liberamos la cadena Base64 original: el payload serializado ya la contiene
+  contentBase64 = null;
+
   const res = UrlFetchApp.fetch(apiContentsUrl(pathRelativo), {
     method: "PUT",
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github+json'
     },
-    payload: JSON.stringify(payload),
+    payload: payloadStr,
     muteHttpExceptions: true
   });
 
@@ -97,36 +124,71 @@ function subirArchivoAGitHub(file, shaExistente) {
   return true;
 }
 
-// ===== SUBE SOLO LOS MP3 NUEVOS Y LOS BORRA DE DRIVE =====
+// ===== SUBE COMO MÁXIMO 1 ARCHIVO NUEVO POR EJECUCIÓN =====
 function subirAudiosNuevosAGitHub() {
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
   const files = folder.getFiles();
   const registro = cargarRegistro();
 
-  let subidos = 0;
+  let procesados = 0;       // archivos nuevos efectivamente tratados (subidos o marcados)
   let saltados = 0;
+  let subidos = 0;
   let borrados = 0;
+  let demasiadoGrande = 0;
 
-  while (files.hasNext()) {
-    const file = files.next();
+  while (files.hasNext() && procesados < MAX_ARCHIVOS_POR_EJECUCION) {
+    let file = files.next();
     const name = file.getName();
-    if (!name.match(/\.(mp3|m4a|wav)$/i)) continue;
+
+    if (!name.match(/\.(mp3|m4a|wav)$/i)) {
+      file = null;
+      continue;
+    }
 
     const id = file.getId();
     const modified = file.getLastUpdated().getTime();
     const entrada = registro[id];
 
+    // Ya procesado y sin cambios -> saltar
     if (entrada && entrada.name === name && entrada.modified === modified) {
       saltados++;
+      file = null;
       continue;
     }
 
+    // --- Comprobación de tamaño ---
+    const size = file.getSize();
+    if (size > LIMITE_BYTES) {
+      const sizeMB = (size / 1024 / 1024).toFixed(2);
+      Logger.log(`Archivo ${name} (${sizeMB} MB) supera 100 MB. Se añade al feed sin audio.`);
+
+      registro[id] = {
+        name: name,
+        title: name.replace(/\.[^/.]+$/, ""),
+        pubDate: file.getDateCreated().toUTCString(),
+        modified: modified,
+        tooBig: true,
+        size: size
+      };
+      demasiadoGrande++;
+      procesados++;
+
+      // NO se borra de Drive aunque se active el borrado general.
+      file = null;
+      continue;
+    }
+
+    // --- Subida normal a GitHub ---
     let shaExistente = null;
     const info = existeEnGitHub(`${AUDIO_FOLDER_PATH}/${name}`);
     if (info) shaExistente = info.sha;
 
     const ok = subirArchivoAGitHub(file, shaExistente);
-    if (!ok) continue;
+    if (!ok) {
+      // Si falla la subida, no registramos nada (se reintentará en la próxima ejecución)
+      file = null;
+      continue;
+    }
 
     registro[id] = {
       name: name,
@@ -135,20 +197,25 @@ function subirAudiosNuevosAGitHub() {
       modified: modified
     };
     subidos++;
+    procesados++;
 
     // ============================================================
     // ===== BORRAR EL MP3 DE GOOGLE DRIVE TRAS SUBIRLO A GITHUB ===
     // ============================================================
     // DESCOMENTA LAS DOS LÍNEAS SIGUIENTES CUANDO QUIERAS ACTIVARLO.
-    // setTrashed(true) lo manda a la papelera (recuperable 30 días).
     //
     // file.setTrashed(true);
     // borrados++;
     // ============================================================
+
+    file = null; // liberar
   }
 
   guardarRegistro(registro);
-  Logger.log(`Subidos: ${subidos} | Saltados: ${saltados} | Borrados de Drive: ${borrados}`);
+  Logger.log(
+    `Subidos: ${subidos} | Demasiado grandes: ${demasiadoGrande} | ` +
+    `Saltados: ${saltados} | Borrados: ${borrados}`
+  );
 }
 
 // ===== GENERA EL XML DEL FEED (desde el REGISTRO) =====
@@ -162,26 +229,29 @@ function generarXMLFeed() {
 
   let items = "";
   for (const e of entradas) {
-    const pathRelativo = `${AUDIO_FOLDER_PATH}/${encodeURIComponent(e.name)}`;
-    const url = construirUrlPublica(pathRelativo);
-
-    // XML-escaping básico del título (por si hay &, <, >, etc.)
-    const tituloEscapado = e.title
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&apos;");
-
-    items += `
+    let item = `
     <item>
-      <title>${tituloEscapado}</title>
+      <title>${escapeXml(e.title)}</title>
       <pubDate>${e.pubDate}</pubDate>
-      <enclosure url="${url}" length="0" type="audio/mpeg" />
       <guid isPermaLink="false">${e.id}</guid>
       <itunes:author>${FEED_AUTHOR}</itunes:author>
-      <itunes:image href="${PODCAST_IMAGE_URL}" />
+      <itunes:image href="${PODCAST_IMAGE_URL}" />`;
+
+    if (e.tooBig) {
+      // Item sin audio: no ponemos <enclosure>
+      item += `
+      <description>Archivo superior a 100MB</description>`;
+    } else {
+      const pathRelativo = `${AUDIO_FOLDER_PATH}/${encodeURIComponent(e.name)}`;
+      const url = construirUrlPublica(pathRelativo);
+      item += `
+      <enclosure url="${url}" length="0" type="audio/mpeg" />`;
+    }
+
+    item += `
     </item>`;
+
+    items += item;
   }
 
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
@@ -232,10 +302,9 @@ function subirFeedAGitHub() {
     sha = info.sha;
   }
 
-  // *** AQUÍ ESTÁ LA CLAVE DEL ARREGLO DE ENCODING ***
-  // Convertimos el string a bytes como UTF-8 explícitamente y luego base64.
+  // Fuerza UTF-8 al pasar el XML a bytes antes de Base64
   const blob = Utilities.newBlob(contenidoXML, 'text/xml', 'feed-podcasts.xml');
-  const contenidoBase64 = Utilities.base64Encode(blob.getBytes());
+  let contenidoBase64 = Utilities.base64Encode(blob.getBytes());
 
   const payload = {
     message: "Actualización automática del feed RSS",
@@ -244,13 +313,16 @@ function subirFeedAGitHub() {
   };
   if (sha) payload.sha = sha;
 
+  const payloadStr = JSON.stringify(payload);
+  contenidoBase64 = null; // liberar
+
   const res = UrlFetchApp.fetch(apiContentsUrl(FEED_FILE_PATH), {
     method: "PUT",
     headers: {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github+json'
     },
-    payload: JSON.stringify(payload),
+    payload: payloadStr,
     muteHttpExceptions: true
   });
 
@@ -260,6 +332,6 @@ function subirFeedAGitHub() {
 
 // ===== FUNCIÓN PRINCIPAL (trigger) =====
 function actualizarTodo() {
-  subirAudiosNuevosAGitHub();
+  subirAudiosNuevosAGitHub(); // Procesa como máximo 1 archivo nuevo
   subirFeedAGitHub();
 }
