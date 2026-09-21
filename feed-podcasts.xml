@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Originals Podcast</title>
+    <description>Podcasts Originals</description>
+    <link>https://zokosting.github.io/rss/</link>
+    <language>es</language>
+    <itunes:author>EREBOR</itunes:author>
+    <itunes:category text="Music"/>
+    <itunes:explicit>no</itunes:explicit>
+
+    <image>
+      <url>https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png</url>
+      <title>Originals Podcast</title>
+      <link>https://zokosting.github.io/rss/</link>
+    </image>
+    <itunes:image href="https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png" />
+
+    
+  </channel>
+</rss>
