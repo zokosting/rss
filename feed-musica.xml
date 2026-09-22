@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Smile Running Man</title>
+    <description>Feed personal de canciones para correr</description>
+    <link>https://zokosting.github.io/rss/</link>
+    <language>es</language>
+    <itunes:author>Cello</itunes:author>
+    <itunes:category text="Music"/>
+    <itunes:explicit>no</itunes:explicit>
+
+    <image>
+      <url>https://img.huffingtonpost.com/asset/57b118da170000d002d1eb19.jpeg</url>
+      <title>Smile Running Man</title>
+      <link>https://zokosting.github.io/rss/</link>
+    </image>
+    <itunes:image href="https://img.huffingtonpost.com/asset/57b118da170000d002d1eb19.jpeg" />
+
+    
+    <item>
+      <title>La Salvación</title>
+      <pubDate>Sun, 13 Sep 2026 12:44:53 GMT</pubDate>
+      <guid isPermaLink="false">1w9TxObLVc06cXaHvt9tWDloQFm_7wkNc</guid>
+      <itunes:author>Arde Bogotá</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/La%20Salvaci%C3%B3n.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/La%20Salvaci%C3%B3n.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
+      <title>Los Perros</title>
+      <pubDate>Sun, 13 Sep 2026 12:44:49 GMT</pubDate>
+      <guid isPermaLink="false">1FaD98cq-ObbYtOwDBFaQ3SpSuXp0ClUH</guid>
+      <itunes:author>Arde Bogotá</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Los%20Perros.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Los%20Perros.mp3" length="0" type="audio/mpeg" />
+    </item>
+  </channel>
+</rss>
