@@ -12,7 +12,6 @@ function verRegistro() {
       `  Artista:       ${e.artist || '(sin artista)'}\n` +
       `  Nombre en GH:  ${e.githubName || '(no subido)'}\n` +
       `  Nombre Drive:  ${e.driveName || '(no registrado)'}\n` +
-      `  Imagen:        ${e.image || '(genérica)'}\n` +
       `  PubDate:       ${e.pubDate}\n` +
       `  Modificado:    ${new Date(e.modified).toISOString()}\n` +
       `  >100 MB:       ${e.tooBig ? 'SÍ (' + (e.size/1024/1024).toFixed(2) + ' MB)' : 'no'}\n` +
@@ -20,4 +19,23 @@ function verRegistro() {
       `----------------------------------------`
     );
   });
+}
+
+function diagnosticarImagenes() {
+  const registro = cargarRegistro();
+  const entradas = Object.keys(registro).map(id => Object.assign({ fileId: id }, registro[id]));
+  let conImagen = 0;
+  let sinImagen = 0;
+
+  entradas.forEach(e => {
+    if (e.image && e.image.trim() !== '') {
+      conImagen++;
+      Logger.log(`CON IMAGEN: ${e.title} → ${e.image}`);
+    } else {
+      sinImagen++;
+      Logger.log(`SIN IMAGEN: ${e.title} (image="${e.image}")`);
+    }
+  });
+
+  Logger.log(`\nTotal: ${entradas.length} | Con imagen: ${conImagen} | Sin imagen: ${sinImagen}`);
 }
