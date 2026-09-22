@@ -20,6 +20,14 @@
 
     
     <item>
+      <title>Figure It Out</title>
+      <pubDate>Tue, 22 Sep 2026 20:30:08 GMT</pubDate>
+      <guid isPermaLink="false">1Ye-oWcDln-SDWnAhaFlzUGwiZGIW1wiZ</guid>
+      <itunes:author>Royal Blood</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Figure%20It%20Out.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Figure%20It%20Out.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
       <title>La Salvación</title>
       <pubDate>Sun, 13 Sep 2026 12:44:53 GMT</pubDate>
       <guid isPermaLink="false">1w9TxObLVc06cXaHvt9tWDloQFm_7wkNc</guid>
@@ -34,6 +42,14 @@
       <itunes:author>Arde Bogotá</itunes:author>
       <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Los%20Perros.jpg" />
       <enclosure url="https://zokosting.github.io/rss/Musica/Los%20Perros.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
+      <title>Cut Ya Down</title>
+      <pubDate>Sun, 13 Sep 2026 12:27:39 GMT</pubDate>
+      <guid isPermaLink="false">1UKxEumlJrwhIJOaF5QnPw7GrUfXC5CoZ</guid>
+      <itunes:author>Eli &quot;Paperboy&quot; Reed</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Cut%20Ya%20Down.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Cut%20Ya%20Down.mp3" length="0" type="audio/mpeg" />
     </item>
   </channel>
 </rss>
