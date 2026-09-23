@@ -13,7 +13,7 @@
 
     <image>
       <url>https://img.huffingtonpost.com/asset/57b118da170000d002d1eb19.jpeg</url>
-      <title>Smile Running Man- Hot Shots</title>
+      <title>Smile Running Man - Hot Shots</title>
       <link>https://zokosting.github.io/rss/</link>
     </image>
     <itunes:image href="https://img.huffingtonpost.com/asset/57b118da170000d002d1eb19.jpeg" />
@@ -32,8 +32,16 @@
       <pubDate>Tue, 22 Sep 2026 10:25:15 GMT</pubDate>
       <guid isPermaLink="false">1s30pF51cLU2dBQE7IGKfUTfDvHt5ZZhY</guid>
       <itunes:author>Nil Moliner</itunes:author>
-      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/01-Nil%20Moliner%20-%20ARA.jpg" />
-      <enclosure url="https://zokosting.github.io/rss/Musica/01-Nil%20Moliner%20-%20ARA.mp3" length="0" type="audio/mpeg" />
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/ARA.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/ARA.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
+      <title>Train</title>
+      <pubDate>Sun, 13 Sep 2026 12:53:50 GMT</pubDate>
+      <guid isPermaLink="false">1ULFzeXx-0UXTCtNPIJcr3jdNeZFPJG1s</guid>
+      <itunes:author>Undrop</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Train.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Train.mp3" length="0" type="audio/mpeg" />
     </item>
     <item>
       <title>Rousing Anthem - BSO Hope!</title>
