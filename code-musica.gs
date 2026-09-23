@@ -1,5 +1,5 @@
 // ===== CONFIGURACION =====
-const FEED_NAME = "Smile Running Man";
+const FEED_NAME = "Smile Running Man - Hot Shots";
 const FEED_DESCRIPTION = "Feed personal de canciones para correr";
 const FEED_AUTHOR = "Cello";
 const REPO_OWNER = "zokosting";
