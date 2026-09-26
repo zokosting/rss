@@ -36,6 +36,14 @@
       <enclosure url="https://zokosting.github.io/rss/Musica/Figure%20It%20Out.mp3" length="0" type="audio/mpeg" />
     </item>
     <item>
+      <title>Blue orchid</title>
+      <pubDate>Tue, 22 Sep 2026 20:08:22 GMT</pubDate>
+      <guid isPermaLink="false">1F6Lc9qHULxignJxfs82nFDP7cu68DykW</guid>
+      <itunes:author>The White Stripes</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Blue%20orchid.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Blue%20orchid.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
       <title>Song 2</title>
       <pubDate>Tue, 22 Sep 2026 20:03:09 GMT</pubDate>
       <guid isPermaLink="false">1wliBaD1RsIQmjb5unoGBm6ZI6VWWNF0B</guid>
@@ -146,6 +154,14 @@
       <itunes:author>The Shoes</itunes:author>
       <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Time%20to%20dance.jpg" />
       <enclosure url="https://zokosting.github.io/rss/Musica/Time%20to%20dance.mp3" length="0" type="audio/mpeg" />
+    </item>
+    <item>
+      <title>Nous debout</title>
+      <pubDate>Sun, 13 Sep 2026 12:54:15 GMT</pubDate>
+      <guid isPermaLink="false">1YumoGyllr8QGr24i-hBrjqC6wZDW9zOM</guid>
+      <itunes:author>Zaz</itunes:author>
+      <itunes:image href="https://zokosting.github.io/rss/Musica/covers/Nous%20debout.jpg" />
+      <enclosure url="https://zokosting.github.io/rss/Musica/Nous%20debout.mp3" length="0" type="audio/mpeg" />
     </item>
     <item>
       <title>Train</title>
