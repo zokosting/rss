@@ -1,20 +1,23 @@
 // ===== CONFIGURACION =====
 const FEED_NAME = "Originals Podcast";
 const FEED_DESCRIPTION = "Podcasts Originals";
-const FEED_AUTHOR = "MODIFICAR";
-const REPO_OWNER = "MODIFICAR";
-const REPO_NAME = "MODIFICAR";                 
-const BRANCH = "MODIFICAR";
+const FEED_AUTHOR = "EREBOR";
+const REPO_OWNER = "zokosting";
+const REPO_NAME = "rss";
+const BRANCH = "main";
 const FEED_FILE_PATH = "feed-podcasts.xml";
-const AUDIO_FOLDER_PATH = "MODIFICAR";
-const DRIVE_FOLDER_ID = "MODIFICAR";
+const AUDIO_FOLDER_PATH = "Podcasts";
+const DRIVE_FOLDER_ID = "1R62N1yTogfhx1j0A1B7lOw_bz13z7XiE";
 
 const USE_GITHUB_PAGES = true;
 
 const PODCAST_IMAGE_URL = "https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png";
 
-const LIMITE_BYTES = 100 * 1024 * 1024;
+const LIMITE_BYTES = 30 * 1024 * 1024;
 const MAX_ARCHIVOS_POR_EJECUCION = 1;
+
+// Antigüedad máxima de los archivos alojados en GitHub (1 año)
+const ANTIGUEDAD_MAXIMA_MS = 365 * 24 * 60 * 60 * 1000;
 
 // ===== UTILIDADES =====
 function construirUrlPublica(pathRelativo) {
@@ -41,23 +44,15 @@ function escapeXml(str) {
     .replace(/'/g, "&apos;");
 }
 
-/**
- * Limpia un título para que sea un nombre de archivo válido en GitHub.
- * Elimina caracteres problemáticos y acorta si es muy largo.
- */
 function sanitizeFileName(titulo) {
   return titulo
-    .replace(/[\/\\:*?"<>|]/g, '-')   // reemplaza caracteres prohibidos por guión
-    .replace(/\s+/g, ' ')             // colapsa espacios múltiples
+    .replace(/[\/\\:*?"<>|]/g, '-')
+    .replace(/\s+/g, ' ')
     .trim()
-    .substring(0, 200);               // límite prudencial de longitud
+    .substring(0, 200);
 }
 
-// ===== OBTENER INFORMACIÓN DESDE IVOOX (título, descripción, imagen) =====
-/**
- * Dado el slug de iVoox (nombre del archivo sin extensión), devuelve un objeto
- * { title, description, image } o null si no se puede obtener.
- */
+// ===== OBTENER INFORMACIÓN DESDE IVOOX =====
 function obtenerInfoIvoox(slug) {
   try {
     const url = `https://www.ivoox.com/${slug}.html`;
@@ -66,26 +61,20 @@ function obtenerInfoIvoox(slug) {
 
     const html = res.getContentText('UTF-8');
 
-    // --- Título ---
-    // Preferimos og:title para evitar el sufijo "Podcast en iVoox"
     let titleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
     if (!titleMatch) {
-      // Fallback al <title> de la página
       titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     }
     let title = titleMatch ? titleMatch[1] : slug;
-    // Cortar el sufijo " - PsicoGuías..." o similares
     if (title.includes(' - ')) {
       title = title.split(' - ')[0].trim();
     }
 
-    // --- Descripción completa (twitter:description) ---
     const descMatch = html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([\s\S]*?)["']\s*\/?>/i);
     let description = descMatch
       ? descMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       : '';
 
-    // --- Imagen del episodio ---
     const imgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
     const image = imgMatch ? imgMatch[1] : '';
 
@@ -128,7 +117,7 @@ function existeEnGitHub(pathRelativo) {
   return null;
 }
 
-// ===== SUBE UN ARCHIVO A GITHUB (con liberación de memoria) =====
+// ===== SUBE UN ARCHIVO A GITHUB =====
 function subirArchivoAGitHub(file, shaExistente, nombreGitHub) {
   const token = getGithubToken();
   const pathRelativo = `${AUDIO_FOLDER_PATH}/${nombreGitHub}`;
@@ -163,6 +152,121 @@ function subirArchivoAGitHub(file, shaExistente, nombreGitHub) {
     return false;
   }
   return true;
+}
+
+// ===== ELIMINA UN ARCHIVO DE GITHUB =====
+function eliminarArchivoDeGitHub(nombreGitHub) {
+  const token = getGithubToken();
+  const pathRelativo = `${AUDIO_FOLDER_PATH}/${nombreGitHub}`;
+
+  const info = existeEnGitHub(pathRelativo);
+  if (!info) {
+    // Ya no existe en GitHub: nada que borrar
+    return true;
+  }
+
+  const payload = {
+    message: `Eliminación automática (más de un año): ${nombreGitHub}`,
+    sha: info.sha,
+    branch: BRANCH
+  };
+
+  const res = UrlFetchApp.fetch(apiContentsUrl(pathRelativo), {
+    method: "DELETE",
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/vnd.github+json'
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  const code = res.getResponseCode();
+  if (code !== 200 && code !== 204) {
+    Logger.log(`Error eliminando ${nombreGitHub} de GitHub: ${code} - ${res.getContentText('UTF-8')}`);
+    return false;
+  }
+  return true;
+}
+
+// ===== LISTA LOS ARCHIVOS DE LA CARPETA DE AUDIO EN GITHUB =====
+function listarArchivosEnGitHub() {
+  const token = getGithubToken();
+  const res = UrlFetchApp.fetch(apiContentsUrl(AUDIO_FOLDER_PATH), {
+    headers: { 'Authorization': `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+
+  if (res.getResponseCode() !== 200) return [];
+
+  const items = JSON.parse(res.getContentText('UTF-8'));
+  if (!Array.isArray(items)) return [];
+
+  return items.filter(i => i.type === 'file');
+}
+
+// ===== OBTIENE LA FECHA DEL ÚLTIMO COMMIT DE UN ARCHIVO =====
+/**
+ * Consulta la API de GitHub para obtener la fecha del commit más reciente
+ * que tocó el archivo indicado. Es la fuente de verdad para la caducidad.
+ * @param {string} nombreGitHub Nombre del archivo dentro de AUDIO_FOLDER_PATH.
+ * @return {Date|null} Fecha del último commit, o null si no se pudo obtener.
+ */
+function obtenerFechaUltimoCommit(nombreGitHub) {
+  const token = getGithubToken();
+  const pathRelativo = `${AUDIO_FOLDER_PATH}/${nombreGitHub}`;
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/commits?path=${encodeURIComponent(pathRelativo)}&per_page=1`;
+
+  const res = UrlFetchApp.fetch(url, {
+    headers: { 'Authorization': `Bearer ${token}` },
+    muteHttpExceptions: true
+  });
+
+  if (res.getResponseCode() !== 200) return null;
+
+  const commits = JSON.parse(res.getContentText('UTF-8'));
+  if (!Array.isArray(commits) || commits.length === 0) return null;
+
+  // El primer elemento es el commit más reciente que tocó este archivo
+  return new Date(commits[0].commit.committer.date);
+}
+
+// ===== LIMPIEZA: ELIMINA ARCHIVOS DE GITHUB CON MÁS DE UN AÑO =====
+/**
+ * Recorre todos los archivos de la carpeta de audio en GitHub, consulta la
+ * fecha de su último commit y elimina los que superen ANTIGUEDAD_MAXIMA_MS.
+ * No depende del registro local: siempre pregunta a GitHub.
+ */
+function limpiarArchivosExpirados() {
+  const archivos = listarArchivosEnGitHub();
+  const ahora = Date.now();
+
+  let revisados = 0;
+  let eliminados = 0;
+  let fallidos = 0;
+
+  for (const archivo of archivos) {
+    const fecha = obtenerFechaUltimoCommit(archivo.name);
+
+    if (!fecha || isNaN(fecha.getTime())) {
+      Logger.log(`No se pudo obtener la fecha de ${archivo.name}. Se omite.`);
+      continue;
+    }
+
+    revisados++;
+
+    if (ahora - fecha.getTime() > ANTIGUEDAD_MAXIMA_MS) {
+      const ok = eliminarArchivoDeGitHub(archivo.name);
+      if (ok) {
+        eliminados++;
+        Logger.log(`Archivo expirado eliminado: ${archivo.name} (último commit: ${fecha.toISOString()})`);
+      } else {
+        fallidos++;
+      }
+    }
+  }
+
+  Logger.log(`Limpieza: revisados ${revisados}, eliminados ${eliminados}, fallidos ${fallidos}`);
 }
 
 // ===== SUBE COMO MÁXIMO 1 ARCHIVO NUEVO POR EJECUCIÓN =====
@@ -200,19 +304,18 @@ function subirAudiosNuevosAGitHub() {
     const slug = driveName.replace(/\.[^/.]+$/, "");
     const infoIvoox = obtenerInfoIvoox(slug);
 
-    // Título de fallback si iVoox falla
     const titulo = infoIvoox ? infoIvoox.title : slug;
     const descripcion = infoIvoox ? infoIvoox.description : '';
     const imagen = infoIvoox ? infoIvoox.image : '';
 
-    // Nombre que tendrá el archivo en GitHub
     const nombreGitHub = sanitizeFileName(titulo) + '.mp3';
 
     // --- Comprobar tamaño ---
     const size = file.getSize();
     if (size > LIMITE_BYTES) {
       const sizeMB = (size / 1024 / 1024).toFixed(2);
-      Logger.log(`Archivo ${driveName} (${sizeMB} MB) supera 100 MB. Se registra sin audio.`);
+      const limiteMB = (LIMITE_BYTES / 1024 / 1024).toFixed(0);
+      Logger.log(`Archivo ${driveName} (${sizeMB} MB) supera ${limiteMB} MB. Se registra sin audio.`);
 
       registro[id] = {
         driveName: driveName,
@@ -255,13 +358,7 @@ function subirAudiosNuevosAGitHub() {
     subidos++;
     procesados++;
 
-    // ============================================================
-    // ===== BORRAR EL MP3 DE GOOGLE DRIVE TRAS SUBIRLO A GITHUB ===
-    // ============================================================
-    // file.setTrashed(true);
-    // ============================================================
-
-    file = null; // liberar
+    file = null;
   }
 
   guardarRegistro(registro);
@@ -271,7 +368,7 @@ function subirAudiosNuevosAGitHub() {
   );
 }
 
-// ===== GENERA EL XML DEL FEED (desde el REGISTRO) =====
+// ===== GENERA EL XML DEL FEED =====
 function generarXMLFeed() {
   const registro = cargarRegistro();
 
@@ -282,7 +379,6 @@ function generarXMLFeed() {
 
   let items = "";
   for (const e of entradas) {
-    // Imagen: la específica del episodio, o la genérica si no hay
     const imagenItem = (e.image && e.image.trim() !== '') ? e.image : PODCAST_IMAGE_URL;
 
     let item = `
@@ -293,16 +389,14 @@ function generarXMLFeed() {
       <itunes:author>${FEED_AUTHOR}</itunes:author>
       <itunes:image href="${imagenItem}" />`;
 
-    // Descripción
     if (e.description && e.description.trim() !== "") {
       item += `
       <description>${escapeXml(e.description)}</description>`;
     } else if (e.tooBig) {
       item += `
-      <description>Archivo superior a 100MB</description>`;
+      <description>Episodio no alojado por superar el límite de tamaño</description>`;
     }
 
-    // Enclosure (solo si no es demasiado grande)
     if (!e.tooBig) {
       const pathRelativo = `${AUDIO_FOLDER_PATH}/${encodeURIComponent(e.githubName)}`;
       const url = construirUrlPublica(pathRelativo);
@@ -342,7 +436,7 @@ function generarXMLFeed() {
   return rss;
 }
 
-// ===== SUBE EL FEED A GITHUB (solo si cambió) =====
+// ===== SUBE EL FEED A GITHUB =====
 function subirFeedAGitHub() {
   const contenidoXML = generarXMLFeed();
   const token = getGithubToken();
@@ -391,7 +485,8 @@ function subirFeedAGitHub() {
 }
 
 // ===== FUNCIÓN PRINCIPAL (trigger) =====
-function actualizarTodo() {
+function EJECUTAR_ACTUALIZAR_TODO() {
+  limpiarArchivosExpirados();  // Primero limpiamos los que ya cumplieron un año
   subirAudiosNuevosAGitHub();
   subirFeedAGitHub();
 }
