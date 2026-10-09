@@ -19,5 +19,13 @@
     <itunes:image href="https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png" />
 
     
+    <item>
+      <title>Confianza interior</title>
+      <pubDate>Fri, 18 Sep 2026 10:24:54 GMT</pubDate>
+      <guid isPermaLink="false">1uePPp3pg7KlJvO-MpMUuiblWgpQVzDgE</guid>
+      <itunes:author>EREBOR</itunes:author>
+      <itunes:image href="https://splasradio.com/wp-content/uploads/2026/06/iVoox_Isotipo_negativo.png" />
+      <enclosure url="https://zokosting.github.io/rss/Podcasts/Confianza%20interior.mp3" length="0" type="audio/mpeg" />
+    </item>
   </channel>
 </rss>
