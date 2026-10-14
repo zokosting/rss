@@ -86,8 +86,6 @@ function obtenerInfoIvoox(slug) {
 }
 
 // ===== REGISTRO PERSISTENTE =====
-// Estructura: { fileId: { driveName, githubName, title, description, image,
-//                          pubDate, modified, tooBig?, size? } }
 function cargarRegistro() {
   const raw = PropertiesService.getScriptProperties().getProperty('REGISTRO_AUDIOS');
   try {
@@ -161,7 +159,6 @@ function eliminarArchivoDeGitHub(nombreGitHub) {
 
   const info = existeEnGitHub(pathRelativo);
   if (!info) {
-    // Ya no existe en GitHub: nada que borrar
     return true;
   }
 
@@ -206,12 +203,6 @@ function listarArchivosEnGitHub() {
 }
 
 // ===== OBTIENE LA FECHA DEL ÚLTIMO COMMIT DE UN ARCHIVO =====
-/**
- * Consulta la API de GitHub para obtener la fecha del commit más reciente
- * que tocó el archivo indicado. Es la fuente de verdad para la caducidad.
- * @param {string} nombreGitHub Nombre del archivo dentro de AUDIO_FOLDER_PATH.
- * @return {Date|null} Fecha del último commit, o null si no se pudo obtener.
- */
 function obtenerFechaUltimoCommit(nombreGitHub) {
   const token = getGithubToken();
   const pathRelativo = `${AUDIO_FOLDER_PATH}/${nombreGitHub}`;
@@ -227,16 +218,10 @@ function obtenerFechaUltimoCommit(nombreGitHub) {
   const commits = JSON.parse(res.getContentText('UTF-8'));
   if (!Array.isArray(commits) || commits.length === 0) return null;
 
-  // El primer elemento es el commit más reciente que tocó este archivo
   return new Date(commits[0].commit.committer.date);
 }
 
 // ===== LIMPIEZA: ELIMINA ARCHIVOS DE GITHUB CON MÁS DE UN AÑO =====
-/**
- * Recorre todos los archivos de la carpeta de audio en GitHub, consulta la
- * fecha de su último commit y elimina los que superen ANTIGUEDAD_MAXIMA_MS.
- * No depende del registro local: siempre pregunta a GitHub.
- */
 function limpiarArchivosExpirados() {
   const archivos = listarArchivosEnGitHub();
   const ahora = Date.now();
@@ -269,6 +254,188 @@ function limpiarArchivosExpirados() {
   Logger.log(`Limpieza: revisados ${revisados}, eliminados ${eliminados}, fallidos ${fallidos}`);
 }
 
+// ===== LEE LA URL DE IVOOX DESDE UN ARCHIVO DE TEXTO =====
+function leerUrlDesdeArchivoTexto(file) {
+  try {
+    // El archivo es de tipo text/plain (o .txt)
+    const texto = file.getBlob().getDataAsString('UTF-8');
+
+    // Busca la URL de iVoox en el texto
+    const regex = /(https?:\/\/www\.ivoox\.com\/[^\s]+)/;
+    const match = texto.match(regex);
+
+    if (match) {
+      Logger.log(`URL de iVoox encontrada en el archivo de texto: ${match[1]}`);
+      return match[1];
+    }
+    Logger.log(`No se encontró URL de iVoox en el archivo: ${file.getName()}`);
+    return null;
+
+  } catch (e) {
+    Logger.log(`Error al leer el archivo de texto "${file.getName()}": ${e}`);
+    return null;
+  }
+}
+
+// ===== EXTRAE EL ID DE AUDIO DE UNA URL DE IVOOX =====
+function extraerIdAudioIvoox(url) {
+  // Patrón para URLs como: .../audios-mp3_rf_181881572_1.html
+  const match = url.match(/_rf_(\d+)_/);
+  if (match && match[1]) {
+    Logger.log(`ID de audio extraído: ${match[1]}`);
+    return match[1];
+  }
+  Logger.log(`No se pudo extraer el ID de audio de la URL: ${url}`);
+  return null;
+}
+
+// ===== CONSTRUYE LA URL DE DESCARGA DIRECTA =====
+function construirUrlDescarga(idAudio) {
+  // Patrón basado en tu hallazgo: listen_mn_{id}_1.mp3?pc=
+  const url = `https://www.ivoox.com/listen_mn_${idAudio}_1.mp3?pc=`;
+  Logger.log(`URL de descarga construida: ${url}`);
+  return url;
+}
+
+// ===== PROCESA UN ARCHIVO DE TEXTO (descarga el audio, lo guarda en Drive y lo sube a GitHub) =====
+function procesarArchivoTexto(file, registro, id, modified) {
+  Logger.log(`Procesando archivo de texto: ${file.getName()}`);
+
+  // 1. Leer la URL de iVoox desde el archivo de texto
+  const urlPublica = leerUrlDesdeArchivoTexto(file);
+  if (!urlPublica) {
+    Logger.log(`Saltando archivo de texto sin URL de iVoox: ${file.getName()}`);
+    return false;
+  }
+
+  // 2. Extraer el ID de audio de la URL
+  const idAudio = extraerIdAudioIvoox(urlPublica);
+  if (!idAudio) {
+    return false;
+  }
+
+  // 3. Construir la URL de descarga directa
+  const urlDescarga = construirUrlDescarga(idAudio);
+  if (!urlDescarga) {
+    return false;
+  }
+
+  // 4. Obtener información del episodio desde iVoox
+  const slug = urlPublica.replace('https://www.ivoox.com/', '').replace('.html', '');
+  const infoIvoox = obtenerInfoIvoox(slug);
+
+  const titulo = infoIvoox ? infoIvoox.title : slug;
+  const descripcion = infoIvoox ? infoIvoox.description : '';
+  const imagen = infoIvoox ? infoIvoox.image : '';
+
+  const nombreGitHub = sanitizeFileName(titulo) + '.mp3';
+
+  // 5. Descargar el audio (siempre, independientemente de su tamaño)
+  Logger.log(`Descargando audio desde: ${urlDescarga}`);
+  const resAudio = UrlFetchApp.fetch(urlDescarga, {
+    headers: { 'Referer': 'https://www.ivoox.com/' },
+    muteHttpExceptions: true
+  });
+
+  if (resAudio.getResponseCode() !== 200) {
+    Logger.log(`Error al descargar el audio: ${resAudio.getResponseCode()}`);
+    return false;
+  }
+
+  const audioBlob = resAudio.getBlob();
+  const size = audioBlob.getBytes().length;
+  const sizeMB = (size / 1024 / 1024).toFixed(2);
+  Logger.log(`Audio descargado: ${sizeMB} MB`);
+
+  // 6. Guardar SIEMPRE el audio en Google Drive
+  let audioDriveFile = null;
+  try {
+    const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
+    audioBlob.setName(nombreGitHub);
+    audioDriveFile = folder.createFile(audioBlob);
+    Logger.log(`Audio guardado en Drive: ${audioDriveFile.getName()} (${audioDriveFile.getId()})`);
+  } catch (e) {
+    Logger.log(`Error guardando el audio en Drive: ${e}`);
+  }
+
+  // 7. Registrar el MP3 creado en Drive como "ya procesado"
+  //    para que el script no lo vuelva a procesar en la próxima ejecución
+  if (audioDriveFile) {
+    const newDriveId = audioDriveFile.getId();
+    const newModified = audioDriveFile.getLastUpdated().getTime();
+    registro[newDriveId] = {
+      driveName: audioDriveFile.getName(),
+      githubName: nombreGitHub,
+      title: titulo,
+      description: descripcion,
+      image: imagen,
+      pubDate: audioDriveFile.getDateCreated().toUTCString(),
+      modified: newModified
+    };
+  }
+
+  // 8. Si el audio supera el límite, registrarlo como tooBig y borrar el archivo de texto
+  if (size > LIMITE_BYTES) {
+    const limiteMB = (LIMITE_BYTES / 1024 / 1024).toFixed(0);
+    Logger.log(`Audio (${sizeMB} MB) supera ${limiteMB} MB. Se registra sin audio en el feed.`);
+
+    registro[id] = {
+      driveName: file.getName(),
+      githubName: nombreGitHub,
+      title: titulo,
+      description: descripcion,
+      image: imagen,
+      pubDate: file.getDateCreated().toUTCString(),
+      modified: modified,
+      tooBig: true,
+      size: size
+    };
+
+    try {
+      file.setTrashed(true);
+      Logger.log(`Archivo de texto eliminado: ${file.getName()}`);
+    } catch (e) {
+      Logger.log(`Error eliminando archivo de texto: ${e}`);
+    }
+
+    return true;
+  }
+
+  // 9. Subir a GitHub
+  let shaExistente = null;
+  const infoGitHub = existeEnGitHub(`${AUDIO_FOLDER_PATH}/${nombreGitHub}`);
+  if (infoGitHub) shaExistente = infoGitHub.sha;
+
+  const ok = subirArchivoAGitHub(audioBlob, shaExistente, nombreGitHub);
+
+  // 10. Registrar el archivo de texto procesado (independientemente de si subió a GitHub o no)
+  registro[id] = {
+    driveName: file.getName(),
+    githubName: nombreGitHub,
+    title: titulo,
+    description: descripcion,
+    image: imagen,
+    pubDate: file.getDateCreated().toUTCString(),
+    modified: modified
+  };
+
+  if (ok) {
+    Logger.log(`Archivo de texto procesado correctamente: ${file.getName()} -> ${nombreGitHub}`);
+  } else {
+    Logger.log(`No se pudo subir a GitHub, pero el audio está guardado en Drive: ${nombreGitHub}`);
+  }
+
+  // 11. Eliminar el archivo de texto (siempre)
+  try {
+    file.setTrashed(true);
+    Logger.log(`Archivo de texto eliminado: ${file.getName()}`);
+  } catch (e) {
+    Logger.log(`Error eliminando archivo de texto: ${e}`);
+  }
+
+  return true;
+}
+
 // ===== SUBE COMO MÁXIMO 1 ARCHIVO NUEVO POR EJECUCIÓN =====
 function subirAudiosNuevosAGitHub() {
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
@@ -279,12 +446,18 @@ function subirAudiosNuevosAGitHub() {
   let saltados = 0;
   let subidos = 0;
   let demasiadoGrande = 0;
+  let archivosTextoProcesados = 0;
 
   while (files.hasNext() && procesados < MAX_ARCHIVOS_POR_EJECUCION) {
     let file = files.next();
     const driveName = file.getName();
+    const mimeType = file.getMimeType();
 
-    if (!driveName.match(/\.(mp3|m4a|wav)$/i)) {
+    // Detectar si es un archivo de audio o un archivo de texto
+    const esAudio = mimeType === 'audio/mpeg' || mimeType === 'audio/mp4' || driveName.match(/\.(mp3|m4a|wav)$/i);
+    const esTexto = mimeType === 'text/plain' || driveName.match(/\.txt$/i);
+
+    if (!esAudio && !esTexto) {
       file = null;
       continue;
     }
@@ -300,7 +473,18 @@ function subirAudiosNuevosAGitHub() {
       continue;
     }
 
-    // --- Obtener slug y consultar iVoox ---
+    // --- Procesar según tipo de archivo ---
+    if (esTexto) {
+      const ok = procesarArchivoTexto(file, registro, id, modified);
+      if (ok) {
+        archivosTextoProcesados++;
+        procesados++;
+      }
+      file = null;
+      continue;
+    }
+
+    // --- Lógica para archivos de audio (la original) ---
     const slug = driveName.replace(/\.[^/.]+$/, "");
     const infoIvoox = obtenerInfoIvoox(slug);
 
@@ -310,7 +494,6 @@ function subirAudiosNuevosAGitHub() {
 
     const nombreGitHub = sanitizeFileName(titulo) + '.mp3';
 
-    // --- Comprobar tamaño ---
     const size = file.getSize();
     if (size > LIMITE_BYTES) {
       const sizeMB = (size / 1024 / 1024).toFixed(2);
@@ -334,7 +517,6 @@ function subirAudiosNuevosAGitHub() {
       continue;
     }
 
-    // --- Subida a GitHub ---
     let shaExistente = null;
     const infoGitHub = existeEnGitHub(`${AUDIO_FOLDER_PATH}/${nombreGitHub}`);
     if (infoGitHub) shaExistente = infoGitHub.sha;
@@ -345,7 +527,6 @@ function subirAudiosNuevosAGitHub() {
       continue;
     }
 
-    // --- Guardar en el registro ---
     registro[id] = {
       driveName: driveName,
       githubName: nombreGitHub,
@@ -363,8 +544,8 @@ function subirAudiosNuevosAGitHub() {
 
   guardarRegistro(registro);
   Logger.log(
-    `Subidos: ${subidos} | Demasiado grandes: ${demasiadoGrande} | ` +
-    `Saltados: ${saltados}`
+    `Subidos: ${subidos} | Archivos de texto procesados: ${archivosTextoProcesados} | ` +
+    `Demasiado grandes: ${demasiadoGrande} | Saltados: ${saltados}`
   );
 }
 
@@ -486,7 +667,7 @@ function subirFeedAGitHub() {
 
 // ===== FUNCIÓN PRINCIPAL (trigger) =====
 function EJECUTAR_ACTUALIZAR_TODO() {
-  limpiarArchivosExpirados();  // Primero limpiamos los que ya cumplieron un año
+  limpiarArchivosExpirados();
   subirAudiosNuevosAGitHub();
   subirFeedAGitHub();
 }
