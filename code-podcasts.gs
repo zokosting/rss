@@ -10,14 +10,14 @@ const AUDIO_FOLDER_PATH = "Podcasts";
 const DRIVE_FOLDER_ID = "1R62N1yTogfhx1j0A1B7lOw_bz13z7XiE";
 
 const USE_GITHUB_PAGES = true;
-
 const PODCAST_IMAGE_URL = "https://lh3.googleusercontent.com/d/10qdS-dL2FK4JWCnLfDDmcybsxFrksRqy";
 
 const LIMITE_BYTES = 30 * 1024 * 1024;
 const MAX_ARCHIVOS_POR_EJECUCION = 1;
-
-// Antigüedad máxima de los archivos alojados en GitHub (1 año)
 const ANTIGUEDAD_MAXIMA_MS = 365 * 24 * 60 * 60 * 1000;
+
+// Archive.org S3 API
+const IA_S3_ENDPOINT = "https://s3.us.archive.org";
 
 // ===== UTILIDADES =====
 function construirUrlPublica(pathRelativo) {
@@ -33,6 +33,14 @@ function apiContentsUrl(pathRelativo) {
 
 function getGithubToken() {
   return PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+}
+
+function getIaAccessKey() {
+  return PropertiesService.getScriptProperties().getProperty('IA_ACCESS_KEY');
+}
+
+function getIaSecretKey() {
+  return PropertiesService.getScriptProperties().getProperty('IA_SECRET_KEY');
 }
 
 function escapeXml(str) {
@@ -254,131 +262,82 @@ function limpiarArchivosExpirados() {
   Logger.log(`Limpieza: revisados ${revisados}, eliminados ${eliminados}, fallidos ${fallidos}`);
 }
 
-// ===== LEE LA URL DE IVOOX DESDE UN ARCHIVO DE TEXTO =====
-function leerUrlDesdeArchivoTexto(file) {
-  try {
-    // El archivo es de tipo text/plain (o .txt)
-    const texto = file.getBlob().getDataAsString('UTF-8');
+// ===== FUNCIÓN PARA SUBIR UN ARCHIVO A ARCHIVE.ORG =====
+/**
+ * Sube un archivo a Archive.org usando la API S3-like.
+ * Pasa el Blob directamente como payload para evitar duplicar el archivo en memoria
+ * y prevenir errores "Out of memory" con archivos grandes.
+ */
+function subirArchivoAArchive(blob, identifier, filename, metadata) {
+  const accessKey = getIaAccessKey();
+  const secretKey = getIaSecretKey();
 
-    // Busca la URL de iVoox en el texto
-    const regex = /(https?:\/\/www\.ivoox\.com\/[^\s]+)/;
-    const match = texto.match(regex);
-
-    if (match) {
-      Logger.log(`URL de iVoox encontrada en el archivo de texto: ${match[1]}`);
-      return match[1];
-    }
-    Logger.log(`No se encontró URL de iVoox en el archivo: ${file.getName()}`);
-    return null;
-
-  } catch (e) {
-    Logger.log(`Error al leer el archivo de texto "${file.getName()}": ${e}`);
-    return null;
-  }
-}
-
-// ===== EXTRAE EL ID DE AUDIO DE UNA URL DE IVOOX =====
-function extraerIdAudioIvoox(url) {
-  // Patrón para URLs como: .../audios-mp3_rf_181881572_1.html
-  const match = url.match(/_rf_(\d+)_/);
-  if (match && match[1]) {
-    Logger.log(`ID de audio extraído: ${match[1]}`);
-    return match[1];
-  }
-  Logger.log(`No se pudo extraer el ID de audio de la URL: ${url}`);
-  return null;
-}
-
-// ===== CONSTRUYE LA URL DE DESCARGA DIRECTA =====
-function construirUrlDescarga(idAudio) {
-  // Patrón basado en tu hallazgo: listen_mn_{id}_1.mp3?pc=
-  const url = `https://www.ivoox.com/listen_mn_${idAudio}_1.mp3?pc=`;
-  Logger.log(`URL de descarga construida: ${url}`);
-  return url;
-}
-
-// ===== PROCESA UN ARCHIVO DE TEXTO (descarga el audio, lo guarda en Drive y lo sube a GitHub) =====
-function procesarArchivoTexto(file, registro, id, modified) {
-  Logger.log(`Procesando archivo de texto: ${file.getName()}`);
-
-  // 1. Leer la URL de iVoox desde el archivo de texto
-  const urlPublica = leerUrlDesdeArchivoTexto(file);
-  if (!urlPublica) {
-    Logger.log(`Saltando archivo de texto sin URL de iVoox: ${file.getName()}`);
-    return false;
+  if (!accessKey || !secretKey) {
+    Logger.log('ERROR: No se han configurado las claves IA_ACCESS_KEY y IA_SECRET_KEY.');
+    return { ok: false, error: 'Faltan credenciales de Archive.org' };
   }
 
-  // 2. Extraer el ID de audio de la URL
-  const idAudio = extraerIdAudioIvoox(urlPublica);
-  if (!idAudio) {
-    return false;
-  }
+  const authHeader = `LOW ${accessKey}:${secretKey}`;
 
-  // 3. Construir la URL de descarga directa
-  const urlDescarga = construirUrlDescarga(idAudio);
-  if (!urlDescarga) {
-    return false;
-  }
+  const finalMetadata = Object.assign({
+    mediatype: 'audio',
+    collection: 'opensource_audio',
+    title: 'Originals Podcast - Episodio',
+    creator: 'EREBOR',
+    noindex: 'true'
+  }, metadata);
 
-  // 4. Obtener información del episodio desde iVoox
-  const slug = urlPublica.replace('https://www.ivoox.com/', '').replace('.html', '');
-  const infoIvoox = obtenerInfoIvoox(slug);
+  const headers = {
+    'Authorization': authHeader,
+    'x-amz-auto-make-bucket': '1',
+    'x-archive-meta-mediatype': finalMetadata.mediatype,
+    'x-archive-meta-collection': finalMetadata.collection,
+    'x-archive-meta-title': finalMetadata.title,
+    'x-archive-meta-creator': finalMetadata.creator,
+    'x-archive-meta-noindex': finalMetadata.noindex
+  };
 
-  const titulo = infoIvoox ? infoIvoox.title : slug;
-  const descripcion = infoIvoox ? infoIvoox.description : '';
-  const imagen = infoIvoox ? infoIvoox.image : '';
-
-  const nombreGitHub = sanitizeFileName(titulo) + '.mp3';
-
-  // 5. Descargar el audio (siempre, independientemente de su tamaño)
-  Logger.log(`Descargando audio desde: ${urlDescarga}`);
-  const resAudio = UrlFetchApp.fetch(urlDescarga, {
-    headers: { 'Referer': 'https://www.ivoox.com/' },
+  const url = `${IA_S3_ENDPOINT}/${identifier}/${filename}`;
+  const options = {
+    method: 'PUT',
+    headers: headers,
+    payload: blob,              // <-- Blob directamente, sin getBytes()
+    contentType: 'audio/mpeg',
     muteHttpExceptions: true
+  };
+
+  try {
+    const res = UrlFetchApp.fetch(url, options);
+    const code = res.getResponseCode();
+
+    if (code === 200 || code === 201) {
+      const downloadUrl = `https://archive.org/download/${identifier}/${filename}`;
+      Logger.log(`Subida a Archive.org exitosa: ${downloadUrl}`);
+      return { ok: true, downloadUrl: downloadUrl, identifier: identifier };
+    } else {
+      Logger.log(`Error al subir a Archive.org (código ${code}): ${res.getContentText()}`);
+      return { ok: false, error: `Error ${code}` };
+    }
+  } catch (e) {
+    Logger.log(`Excepción al subir a Archive.org: ${e}`);
+    return { ok: false, error: e.toString() };
+  }
+}
+
+// ===== PROCESA UN ARCHIVO GRANDE (sube a Archive.org) =====
+function procesarArchivoGrande(file, registro, id, modified, nombreGitHub, titulo, descripcion, imagen) {
+  Logger.log(`Procesando archivo grande para Archive.org: ${file.getName()}`);
+
+  const identifier = 'originalspodcast-' + sanitizeFileName(titulo).toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
+
+  const resultado = subirArchivoAArchive(file.getBlob(), identifier, nombreGitHub, {
+    title: titulo,
+    creator: 'EREBOR',
+    date: file.getDateCreated().toISOString().split('T')[0]
   });
 
-  if (resAudio.getResponseCode() !== 200) {
-    Logger.log(`Error al descargar el audio: ${resAudio.getResponseCode()}`);
-    return false;
-  }
-
-  const audioBlob = resAudio.getBlob();
-  const size = audioBlob.getBytes().length;
-  const sizeMB = (size / 1024 / 1024).toFixed(2);
-  Logger.log(`Audio descargado: ${sizeMB} MB`);
-
-  // 6. Guardar SIEMPRE el audio en Google Drive
-  let audioDriveFile = null;
-  try {
-    const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
-    audioBlob.setName(nombreGitHub);
-    audioDriveFile = folder.createFile(audioBlob);
-    Logger.log(`Audio guardado en Drive: ${audioDriveFile.getName()} (${audioDriveFile.getId()})`);
-  } catch (e) {
-    Logger.log(`Error guardando el audio en Drive: ${e}`);
-  }
-
-  // 7. Registrar el MP3 creado en Drive como "ya procesado"
-  //    para que el script no lo vuelva a procesar en la próxima ejecución
-  if (audioDriveFile) {
-    const newDriveId = audioDriveFile.getId();
-    const newModified = audioDriveFile.getLastUpdated().getTime();
-    registro[newDriveId] = {
-      driveName: audioDriveFile.getName(),
-      githubName: nombreGitHub,
-      title: titulo,
-      description: descripcion,
-      image: imagen,
-      pubDate: audioDriveFile.getDateCreated().toUTCString(),
-      modified: newModified
-    };
-  }
-
-  // 8. Si el audio supera el límite, registrarlo como tooBig y borrar el archivo de texto
-  if (size > LIMITE_BYTES) {
-    const limiteMB = (LIMITE_BYTES / 1024 / 1024).toFixed(0);
-    Logger.log(`Audio (${sizeMB} MB) supera ${limiteMB} MB. Se registra sin audio en el feed.`);
-
+  if (!resultado.ok) {
+    Logger.log(`No se pudo subir a Archive.org: ${resultado.error}`);
     registro[id] = {
       driveName: file.getName(),
       githubName: nombreGitHub,
@@ -388,27 +347,11 @@ function procesarArchivoTexto(file, registro, id, modified) {
       pubDate: file.getDateCreated().toUTCString(),
       modified: modified,
       tooBig: true,
-      size: size
+      size: file.getSize()
     };
-
-    try {
-      file.setTrashed(true);
-      Logger.log(`Archivo de texto eliminado: ${file.getName()}`);
-    } catch (e) {
-      Logger.log(`Error eliminando archivo de texto: ${e}`);
-    }
-
     return true;
   }
 
-  // 9. Subir a GitHub
-  let shaExistente = null;
-  const infoGitHub = existeEnGitHub(`${AUDIO_FOLDER_PATH}/${nombreGitHub}`);
-  if (infoGitHub) shaExistente = infoGitHub.sha;
-
-  const ok = subirArchivoAGitHub(audioBlob, shaExistente, nombreGitHub);
-
-  // 10. Registrar el archivo de texto procesado (independientemente de si subió a GitHub o no)
   registro[id] = {
     driveName: file.getName(),
     githubName: nombreGitHub,
@@ -416,23 +359,11 @@ function procesarArchivoTexto(file, registro, id, modified) {
     description: descripcion,
     image: imagen,
     pubDate: file.getDateCreated().toUTCString(),
-    modified: modified
+    modified: modified,
+    archiveUrl: resultado.downloadUrl
   };
 
-  if (ok) {
-    Logger.log(`Archivo de texto procesado correctamente: ${file.getName()} -> ${nombreGitHub}`);
-  } else {
-    Logger.log(`No se pudo subir a GitHub, pero el audio está guardado en Drive: ${nombreGitHub}`);
-  }
-
-  // 11. Eliminar el archivo de texto (siempre)
-  try {
-    file.setTrashed(true);
-    Logger.log(`Archivo de texto eliminado: ${file.getName()}`);
-  } catch (e) {
-    Logger.log(`Error eliminando archivo de texto: ${e}`);
-  }
-
+  Logger.log(`Archivo grande registrado con URL de Archive.org: ${resultado.downloadUrl}`);
   return true;
 }
 
@@ -446,18 +377,12 @@ function subirAudiosNuevosAGitHub() {
   let saltados = 0;
   let subidos = 0;
   let demasiadoGrande = 0;
-  let archivosTextoProcesados = 0;
 
   while (files.hasNext() && procesados < MAX_ARCHIVOS_POR_EJECUCION) {
     let file = files.next();
     const driveName = file.getName();
-    const mimeType = file.getMimeType();
 
-    // Detectar si es un archivo de audio o un archivo de texto
-    const esAudio = mimeType === 'audio/mpeg' || mimeType === 'audio/mp4' || driveName.match(/\.(mp3|m4a|wav)$/i);
-    const esTexto = mimeType === 'text/plain' || driveName.match(/\.txt$/i);
-
-    if (!esAudio && !esTexto) {
+    if (!driveName.match(/\.(mp3|m4a|wav)$/i)) {
       file = null;
       continue;
     }
@@ -466,25 +391,12 @@ function subirAudiosNuevosAGitHub() {
     const modified = file.getLastUpdated().getTime();
     const entrada = registro[id];
 
-    // Si ya está registrado y no ha cambiado, saltar
     if (entrada && entrada.driveName === driveName && entrada.modified === modified) {
       saltados++;
       file = null;
       continue;
     }
 
-    // --- Procesar según tipo de archivo ---
-    if (esTexto) {
-      const ok = procesarArchivoTexto(file, registro, id, modified);
-      if (ok) {
-        archivosTextoProcesados++;
-        procesados++;
-      }
-      file = null;
-      continue;
-    }
-
-    // --- Lógica para archivos de audio (la original) ---
     const slug = driveName.replace(/\.[^/.]+$/, "");
     const infoIvoox = obtenerInfoIvoox(slug);
 
@@ -495,24 +407,17 @@ function subirAudiosNuevosAGitHub() {
     const nombreGitHub = sanitizeFileName(titulo) + '.mp3';
 
     const size = file.getSize();
+
     if (size > LIMITE_BYTES) {
       const sizeMB = (size / 1024 / 1024).toFixed(2);
       const limiteMB = (LIMITE_BYTES / 1024 / 1024).toFixed(0);
-      Logger.log(`Archivo ${driveName} (${sizeMB} MB) supera ${limiteMB} MB. Se registra sin audio.`);
+      Logger.log(`Archivo ${driveName} (${sizeMB} MB) supera ${limiteMB} MB. Procesando para Archive.org...`);
 
-      registro[id] = {
-        driveName: driveName,
-        githubName: nombreGitHub,
-        title: titulo,
-        description: descripcion,
-        image: imagen,
-        pubDate: file.getDateCreated().toUTCString(),
-        modified: modified,
-        tooBig: true,
-        size: size
-      };
-      demasiadoGrande++;
-      procesados++;
+      const ok = procesarArchivoGrande(file, registro, id, modified, nombreGitHub, titulo, descripcion, imagen);
+      if (ok) {
+        demasiadoGrande++;
+        procesados++;
+      }
       file = null;
       continue;
     }
@@ -544,8 +449,8 @@ function subirAudiosNuevosAGitHub() {
 
   guardarRegistro(registro);
   Logger.log(
-    `Subidos: ${subidos} | Archivos de texto procesados: ${archivosTextoProcesados} | ` +
-    `Demasiado grandes: ${demasiadoGrande} | Saltados: ${saltados}`
+    `Subidos a GitHub: ${subidos} | Enviados a Archive.org: ${demasiadoGrande} | ` +
+    `Saltados: ${saltados}`
   );
 }
 
@@ -578,11 +483,18 @@ function generarXMLFeed() {
       <description>Episodio no alojado por superar el límite de tamaño</description>`;
     }
 
-    if (!e.tooBig) {
+    let audioUrl = null;
+
+    if (e.archiveUrl) {
+      audioUrl = e.archiveUrl;
+    } else if (!e.tooBig) {
       const pathRelativo = `${AUDIO_FOLDER_PATH}/${encodeURIComponent(e.githubName)}`;
-      const url = construirUrlPublica(pathRelativo);
+      audioUrl = construirUrlPublica(pathRelativo);
+    }
+
+    if (audioUrl) {
       item += `
-      <enclosure url="${url}" length="0" type="audio/mpeg" />`;
+      <enclosure url="${audioUrl}" length="0" type="audio/mpeg" />`;
     }
 
     item += `
