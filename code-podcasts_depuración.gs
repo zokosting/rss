@@ -26,3 +26,21 @@ function verRegistro() {
     );
   });
 }
+
+// ===== ELIMINA UNA ENTRADA CONCRETA DEL REGISTRO =====
+function eliminarEntradaRegistro(fileId) {
+  const registro = cargarRegistro();
+  if (registro[fileId]) {
+    const titulo = registro[fileId].title || '(sin título)';
+    delete registro[fileId];
+    guardarRegistro(registro);
+    Logger.log(`Entrada eliminada del registro: ${titulo} (${fileId})`);
+  } else {
+    Logger.log(`No se encontró la entrada con fileId: ${fileId}`);
+  }
+}
+
+// Uso de Depuración:
+function eliminarChinaImperial() {
+  eliminarEntradaRegistro('1cRIhVvuH_yfZgGVBfgbrkgQapzddmyiE');
+}
