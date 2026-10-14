@@ -69,20 +69,34 @@ function obtenerInfoIvoox(slug) {
 
     const html = res.getContentText('UTF-8');
 
+    // --- Título ---
     let titleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i);
     if (!titleMatch) {
       titleMatch = html.match(/<title>([^<]+)<\/title>/i);
     }
     let title = titleMatch ? titleMatch[1] : slug;
-    if (title.includes(' - ')) {
+
+    // Intento 1: quitar el sufijo "- {nombre podcast} - Podcast en iVoox" del final.
+    // Solo se aplica si el patrón completo está presente.
+    const titleStripped = title
+      .replace(/\s+-\s+.+?\s+-\s+Podcast en iVoox\s*$/i, '')
+      .trim();
+
+    if (titleStripped !== title) {
+      // La regex hizo match: usamos el título con el sufijo ya eliminado
+      title = titleStripped;
+    } else if (title.includes(' - ')) {
+      // Si la regex no aplicó, comportamiento antiguo: cortar en el primer " - "
       title = title.split(' - ')[0].trim();
     }
 
+    // --- Descripción completa (twitter:description) ---
     const descMatch = html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([\s\S]*?)["']\s*\/?>/i);
     let description = descMatch
       ? descMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       : '';
 
+    // --- Imagen del episodio ---
     const imgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
     const image = imgMatch ? imgMatch[1] : '';
 
@@ -373,7 +387,7 @@ function construirUrlDescarga(idAudio) {
 }
 
 // ===== PROCESA UN ARCHIVO GRANDE (sube a Archive.org) =====
-// CORREGIDO: ahora recibe driveName y guarda driveName + modified en el registro,
+// Recibe driveName y guarda driveName + modified en el registro,
 // para que el archivo se detecte como "ya procesado" en la siguiente ejecución.
 function procesarArchivoGrande(blob, registro, id, modified, nombreGitHub, titulo, descripcion, imagen, pubDate, driveName) {
   Logger.log(`Procesando archivo grande para Archive.org`);
@@ -388,13 +402,13 @@ function procesarArchivoGrande(blob, registro, id, modified, nombreGitHub, titul
   if (!resultado.ok) {
     Logger.log(`No se pudo subir a Archive.org: ${resultado.error}`);
     registro[id] = {
-      driveName: driveName,           // <-- AÑADIDO
+      driveName: driveName,
       githubName: nombreGitHub,
       title: titulo,
       description: descripcion,
       image: imagen,
       pubDate: pubDate,
-      modified: modified,             // <-- AÑADIDO (ahora se guarda)
+      modified: modified,
       tooBig: true,
       size: blob.getBytes().length
     };
@@ -402,13 +416,13 @@ function procesarArchivoGrande(blob, registro, id, modified, nombreGitHub, titul
   }
 
   registro[id] = {
-    driveName: driveName,             // <-- AÑADIDO
+    driveName: driveName,
     githubName: nombreGitHub,
     title: titulo,
     description: descripcion,
     image: imagen,
     pubDate: pubDate,
-    modified: modified,               // <-- AÑADIDO (ahora se guarda)
+    modified: modified,
     archiveUrl: resultado.downloadUrl,
     archiveIdentifier: resultado.identifier,
     archiveFilename: nombreGitHub
@@ -481,7 +495,7 @@ function procesarArchivoTexto(file, registro, id, modified) {
       descripcion,
       imagen,
       pubDate,
-      nombreDrive              // <-- AÑADIDO: pasamos el nombre en Drive
+      nombreDrive
     );
   } else {
     let shaExistente = null;
@@ -589,7 +603,7 @@ function subirAudiosNuevosAGitHub() {
         descripcion,
         imagen,
         file.getDateCreated().toUTCString(),
-        driveName              // <-- AÑADIDO
+        driveName
       );
       if (ok) {
         demasiadoGrande++;
