@@ -1,7 +1,5 @@
-// ===== ver_registro.gs =====
 // Función auxiliar para inspeccionar el registro desde los logs.
 // Depende de cargarRegistro(), definida en el archivo principal.
-
 function verRegistro() {
   const registro = cargarRegistro();
   const entradas = Object.keys(registro).map(id => {
@@ -40,7 +38,30 @@ function eliminarEntradaRegistro(fileId) {
   }
 }
 
+// Detectar entradas huérfanas automáticamente
+function limpiarRegistroHuerfanos() {
+  const registro = cargarRegistro();
+  let eliminados = 0;
+
+  for (const id of Object.keys(registro)) {
+    const e = registro[id];
+    if (e.archiveUrl) continue; // Está en Archive, OK
+    if (e.tooBig) continue;     // Registrado como grande sin audio, OK
+    if (!e.githubName) continue;
+
+    const info = existeEnGitHub(`${AUDIO_FOLDER_PATH}/${e.githubName}`);
+    if (!info) {
+      Logger.log(`Huérfano: "${e.title}" (${id}) apunta a ${e.githubName} que no existe en GitHub.`);
+      delete registro[id];
+      eliminados++;
+    }
+  }
+
+  guardarRegistro(registro);
+  Logger.log(`Entradas huérfanas eliminadas: ${eliminados}`);
+}
+
 // Uso de Depuración:
-function eliminarChinaImperial() {
-  eliminarEntradaRegistro('1cRIhVvuH_yfZgGVBfgbrkgQapzddmyiE');
+function eliminarUnaEntradaRegistro() {
+  eliminarEntradaRegistro('1xpyd2muZJzSyZpz2BCVMRgqfyiE8P_YQ');
 }
