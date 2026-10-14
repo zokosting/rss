@@ -76,17 +76,25 @@ function obtenerInfoIvoox(slug) {
     }
     let title = titleMatch ? titleMatch[1] : slug;
 
-    // Intento 1: quitar el sufijo "- {nombre podcast} - Podcast en iVoox" del final.
-    // Solo se aplica si el patrón completo está presente.
-    const titleStripped = title
-      .replace(/\s+-\s+.+?\s+-\s+Podcast en iVoox\s*$/i, '')
-      .trim();
+    // Normalizar espacios (incluye espacios no separables \u00A0)
+    title = title.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
 
-    if (titleStripped !== title) {
-      // La regex hizo match: usamos el título con el sufijo ya eliminado
-      title = titleStripped;
+    // PASO 1: quitar el sufijo " - Podcast en iVoox" (fijo en todas las páginas)
+    const sinSufijoIvoox = title.replace(/\s+[-–—]\s+Podcast en iVoox\s*$/i, '').trim();
+
+    if (sinSufijoIvoox !== title) {
+      title = sinSufijoIvoox;
+
+      // PASO 2: quitar el último segmento (nombre del podcast).
+      // Solo si tras el paso 1 quedan al menos 2 segmentos separados por " - ".
+      const partes = title.split(' - ');
+      if (partes.length > 1) {
+        partes.pop(); // quitar el último segmento = nombre del podcast
+        title = partes.join(' - ').trim();
+      }
     } else if (title.includes(' - ')) {
-      // Si la regex no aplicó, comportamiento antiguo: cortar en el primer " - "
+      // Fallback: si no había sufijo " - Podcast en iVoox" pero sí " - ",
+      // se usa el comportamiento antiguo (cortar en el primer " - ")
       title = title.split(' - ')[0].trim();
     }
 
