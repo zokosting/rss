@@ -63,5 +63,5 @@ function limpiarRegistroHuerfanos() {
 
 // Uso de Depuración:
 function eliminarUnaEntradaRegistro() {
-  eliminarEntradaRegistro('1xpyd2muZJzSyZpz2BCVMRgqfyiE8P_YQ');
+  eliminarEntradaRegistro('1yMxtFvYvj41nG_cEO7mWRxkfzbKs98yd');
 }

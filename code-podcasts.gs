@@ -60,6 +60,37 @@ function sanitizeFileName(titulo) {
     .substring(0, 200);
 }
 
+// ===== CONSTRUIR IDENTIFIER VÁLIDO PARA ARCHIVE.ORG =====
+// Archive.org exige: ^[a-zA-Z0-9][a-zA-Z0-9_.-]{4,100}$
+//  - Empieza por letra o número
+//  - Solo letras, números, _, ., -
+//  - Longitud entre 5 y 101
+//  - Sin guiones al principio ni al final
+function construirIdentifierArchive(titulo) {
+  const prefijo = 'originalspodcast';
+
+  // 1. Slug del título: minúsculas, todo lo no alfanumérico a guion
+  let slug = sanitizeFileName(titulo)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  // 2. Truncar a 60 caracteres y limpiar guion residual al final
+  slug = slug.substring(0, 60).replace(/-+$/g, '');
+
+  // 3. Si por lo que sea el slug queda vacío, usar un placeholder
+  if (!slug) slug = 'episodio';
+
+  // 4. Timestamp completo (13 dígitos, garantiza unicidad)
+  const timestamp = Date.now();
+
+  // 5. Longitud final: 17 + 1 + 60 + 1 + 13 = 92 máx. Bien dentro del límite.
+  const identifier = `${prefijo}-${slug}-${timestamp}`;
+
+  Logger.log(`Identifier generado: ${identifier} (${identifier.length} caracteres)`);
+  return identifier;
+}
+
 // ===== OBTENER INFORMACIÓN DESDE IVOOX =====
 function obtenerInfoIvoox(slug) {
   try {
@@ -76,35 +107,29 @@ function obtenerInfoIvoox(slug) {
     }
     let title = titleMatch ? titleMatch[1] : slug;
 
-    // Normalizar espacios (incluye espacios no separables \u00A0)
     title = title.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
 
-    // PASO 1: quitar el sufijo " - Podcast en iVoox" (fijo en todas las páginas)
     const sinSufijoIvoox = title.replace(/\s+[-–—]\s+Podcast en iVoox\s*$/i, '').trim();
 
     if (sinSufijoIvoox !== title) {
       title = sinSufijoIvoox;
 
-      // PASO 2: quitar el último segmento (nombre del podcast).
-      // Solo si tras el paso 1 quedan al menos 2 segmentos separados por " - ".
       const partes = title.split(' - ');
       if (partes.length > 1) {
-        partes.pop(); // quitar el último segmento = nombre del podcast
+        partes.pop();
         title = partes.join(' - ').trim();
       }
     } else if (title.includes(' - ')) {
-      // Fallback: si no había sufijo " - Podcast en iVoox" pero sí " - ",
-      // se usa el comportamiento antiguo (cortar en el primer " - ")
       title = title.split(' - ')[0].trim();
     }
 
-    // --- Descripción completa (twitter:description) ---
+    // --- Descripción ---
     const descMatch = html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([\s\S]*?)["']\s*\/?>/i);
     let description = descMatch
       ? descMatch[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim()
       : '';
 
-    // --- Imagen del episodio ---
+    // --- Imagen ---
     const imgMatch = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i);
     const image = imgMatch ? imgMatch[1] : '';
 
@@ -182,7 +207,6 @@ function subirBlobAGitHub(blob, shaExistente, nombreGitHub) {
   return true;
 }
 
-// ===== SUBE UN ARCHIVO A GITHUB (wrapper sobre subirBlobAGitHub) =====
 function subirArchivoAGitHub(file, shaExistente, nombreGitHub) {
   return subirBlobAGitHub(file.getBlob(), shaExistente, nombreGitHub);
 }
@@ -395,12 +419,11 @@ function construirUrlDescarga(idAudio) {
 }
 
 // ===== PROCESA UN ARCHIVO GRANDE (sube a Archive.org) =====
-// Recibe driveName y guarda driveName + modified en el registro,
-// para que el archivo se detecte como "ya procesado" en la siguiente ejecución.
 function procesarArchivoGrande(blob, registro, id, modified, nombreGitHub, titulo, descripcion, imagen, pubDate, driveName) {
   Logger.log(`Procesando archivo grande para Archive.org`);
 
-  const identifier = 'originalspodcast-' + sanitizeFileName(titulo).toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + Date.now();
+  // <<< CAMBIO: usar la nueva función que acorta el identifier >>>
+  const identifier = construirIdentifierArchive(titulo);
 
   const resultado = subirArchivoAArchive(blob, identifier, nombreGitHub, {
     title: titulo,
@@ -444,22 +467,18 @@ function procesarArchivoGrande(blob, registro, id, modified, nombreGitHub, titul
 function procesarArchivoTexto(file, registro, id, modified) {
   Logger.log(`Procesando archivo de texto: ${file.getName()}`);
 
-  // 1. Leer la URL de iVoox desde el .txt
   const urlPublica = leerUrlDesdeArchivoTexto(file);
   if (!urlPublica) return false;
 
-  // 2. Extraer slug e ID de audio
   const slug = extraerSlugIvoox(urlPublica);
   const idAudio = extraerIdAudioIvoox(urlPublica);
   if (!slug || !idAudio) return false;
 
-  // 3. Obtener información del episodio desde iVoox
   const infoIvoox = obtenerInfoIvoox(slug);
   const titulo = infoIvoox ? infoIvoox.title : slug;
   const descripcion = infoIvoox ? infoIvoox.description : '';
   const imagen = infoIvoox ? infoIvoox.image : '';
 
-  // 4. Construir URL de descarga y descargar el MP3
   const urlDescarga = construirUrlDescarga(idAudio);
   Logger.log(`Descargando audio desde: ${urlDescarga}`);
   const resAudio = UrlFetchApp.fetch(urlDescarga, {
@@ -477,7 +496,6 @@ function procesarArchivoTexto(file, registro, id, modified) {
   const sizeMB = (size / 1024 / 1024).toFixed(2);
   Logger.log(`Audio descargado: ${sizeMB} MB`);
 
-  // 5. Guardar en Drive con el SLUG como nombre
   const nombreDrive = slug + '.mp3';
   audioBlob.setName(nombreDrive);
 
@@ -490,7 +508,6 @@ function procesarArchivoTexto(file, registro, id, modified) {
   const pubDate = newFile.getDateCreated().toUTCString();
   const newModified = newFile.getLastUpdated().getTime();
 
-  // 6. Subir a GitHub o Archive.org según tamaño.
   if (size > LIMITE_BYTES) {
     Logger.log(`Audio de ${sizeMB} MB supera el límite. Enviando a Archive.org...`);
     procesarArchivoGrande(
@@ -529,7 +546,6 @@ function procesarArchivoTexto(file, registro, id, modified) {
     }
   }
 
-  // 7. Borrar el .txt (SIN registrarlo)
   try {
     file.setTrashed(true);
     Logger.log(`Archivo .txt eliminado: ${file.getName()}`);
@@ -575,7 +591,6 @@ function subirAudiosNuevosAGitHub() {
       continue;
     }
 
-    // --- Archivo de texto: descargar desde iVoox ---
     if (esTexto) {
       const ok = procesarArchivoTexto(file, registro, id, modified);
       if (ok) {
@@ -586,7 +601,6 @@ function subirAudiosNuevosAGitHub() {
       continue;
     }
 
-    // --- Archivo de audio: subir directo ---
     const slug = driveName.replace(/\.[^/.]+$/, "");
     const infoIvoox = obtenerInfoIvoox(slug);
 
