@@ -1,3 +1,5 @@
+// ⚠️ AL CLONAR ESTE REPOSITORIO EN UN EQUIPO NUEVO sigue las instrucciones del README para aplicar sparse-checkout para no descargar mp3.
+
 // Función auxiliar para inspeccionar el registro desde los logs.
 // Depende de cargarRegistro(), definida en el archivo principal.
 function verRegistro() {
